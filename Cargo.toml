@@ -1,6 +1,6 @@
 [package]
 name = "process-events-streaming"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Sandeep Choudhary <sc.oss.india@gmail.com>"]
 description = "Easy to use process with events and data streaming"
