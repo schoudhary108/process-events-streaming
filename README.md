@@ -45,6 +45,9 @@ callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // r
 //     });
 
 ```
+
+File [`../src/lib.rs`] contains examples in detail
+
 ## License
 
 Licensed under
