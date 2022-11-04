@@ -113,30 +113,73 @@ callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // r
 # Examples
 
 ```
-//using shell mode, prints hi and waits for 3 seconds. Events are sent to provided callback
+// setup callback for the process events and data streaming
 
-//let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {};
-// run_process(
-//     102,
-//     true,
-//     vec![vec![
-//         String::from("echo"),
-//         String::from("hi"),
-//         String::from("&"),
-//         String::from("timeout"),
-//         String::from("/t"),
-//         String::from("3"),
-//     ]],
-//     Some(&callback)
-// );
-//
-// using cmd mode, starts calculator application in windows
-// run_process(101, false, vec![vec![String::from("calc")]], None);
-//
-// running process using a thread
-// _ = thread::spawn(move || {
-//            run_process(101, false, vec![vec![String::from("calc")]], None);
-//     });
+let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
+            match status {
+                ProcessEvent::Started => {
+                    println!(
+                        "Event {:?} | req-id {}  | Pids: {:?}",
+                        status, data.request_id, data.pids
+                    );
+                }
+                ProcessEvent::IOData => {
+                    println!(
+                        "Event {:?} | req-id {} | # {} : {}",
+                        status, data.request_id, data.line_number, data.line
+                    );
+                    //demo how to kill/stop
+                    //_ = data.kill();
+                    // //or return false if line_number check, to exit the process
+                    // if data.line_number == 1 {
+                    //     return Some(false);
+                    // }
+                    //
+                    // // or return false if a condition is true based on the output, to exit the process
+                    // if data.line.contains("Sandy") {
+                    //     return Some(false);
+                    // }
+                }
+
+                other => {
+                    if !data.line.is_empty() {
+                        println!(
+                            "Event {:?} | req-id {} | addational detail(s): {}",
+                            other, data.request_id, data.line
+                        );
+                    } else {
+                        println!("Event {:?} | req-id {}", other, data.request_id);
+                    }
+                }
+            }
+            Some(true)
+ };
+ ```
+ ```
+ //using shell mode, prints hi and waits for 3 seconds. Events are sent to provided callback
+
+ run_process(
+     102,
+     true,
+     vec![vec![
+         String::from("echo"),
+         String::from("hi"),
+         String::from("&"),
+         String::from("timeout"),
+         String::from("/t"),
+         String::from("3"),
+     ]],
+     Some(&callback)
+ );
+
+ //using cmd mode, starts calculator application in windows
+ run_process(101, false, vec![vec![String::from("calc")]], None);
+
+ //running process using a thread
+ _ = thread::spawn(move || {
+            run_process(101, false, vec![vec![String::from("calc")]], None);
+    });
+
 
 ```
 */
