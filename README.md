@@ -119,7 +119,7 @@ Event IOEof | req-id 106
 Event Exited | req-id 106
 test_using_sh_output_streaming double quotes ()
 
-Event StartError | req-id 107 | addational detail(s): "Commandline - arguments are unavailable!"
+Event StartError | req-id 107 | additional detail(s): "Commandline - arguments are unavailable!"
 test_using_sh_output_streaming no arguments means error ()
 
 test tests::test_using_sh_output_streaming ... ok

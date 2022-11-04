@@ -104,8 +104,8 @@ request_id : [`u32`] // custom unique numeric id to relate the various callbacks
 
 use_shell : [`bool`] // use shell mode or direct executable path based execution
 
-cmd_line : [`Vec<Vec<String>>`] // Vector of commandline alog with arguments. For a single command line one vector element is enough,
-for the pipe lines use case output of one to provide to the next use Vector of Commandlines.
+cmd_line : [`Vec<Vec<String>>`] // (2D Array) Vector of command lines(along with arguments). For a single command line one vector element is enough,
+for the multiple pipelines usecase e.g. output of one to provide to the next, use multiple vector elements of command lines.
 
 callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
 
@@ -144,7 +144,7 @@ let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
                 other => {
                     if !data.line.is_empty() {
                         println!(
-                            "Event {:?} | req-id {} | addational detail(s): {}",
+                            "Event {:?} | req-id {} | additional detail(s): {}",
                             other, data.request_id, data.line
                         );
                     } else {
@@ -172,7 +172,15 @@ let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
      Some(&callback)
  );
 
- //using cmd mode, starts calculator application in windows
+ //current dir listing and sorting of the the piped output from previous command 'dir'
+ run_process(
+     105,
+     true,
+     vec![vec![String::from("dir")], vec![String::from("sort"),]],
+     Some(&callback)
+ );
+
+ //using cmd mode, starts calculator application in windows. Callback is provide 'None' to ignore the events
  run_process(101, false, vec![vec![String::from("calc")]], None);
 
  //running process using a thread
