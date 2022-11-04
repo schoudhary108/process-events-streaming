@@ -1,0 +1,21 @@
+[package]
+name = "process-events-streaming"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sandeep Choudhary <sc.oss.india@gmail.com>"]
+description = "Easy to use process with events and data streaming"
+repository = "https://github.com/process-events-streaming"
+homepage = "https://github.com/process-events-streaming"
+documentation = "https://docs.rs/process-events-streaming"
+keywords = ["process", "event", "stream"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[badges]
+coveralls = { repository = "process-events-streaming" }
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+duct = { version = "0.13.5" }
