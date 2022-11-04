@@ -100,14 +100,14 @@ Event IOData | req-id 105 | # 2 :
 Event IOData | req-id 105 | # 3 :                5 Dir(s)  679,760,900,096 bytes free
 Event IOData | req-id 105 | # 4 :                7 File(s)          8,018 bytes
 Event IOData | req-id 105 | # 5 :  Directory of C:\process-events-streaming
-Event IOData | req-id 105 | # 8 : 04-11-2022  01:53 PM               210 rustfmt.toml
-Event IOData | req-id 105 | # 9 : 04-11-2022  04:58 PM               682 Cargo.toml
-Event IOData | req-id 105 | # 10 : 04-11-2022  05:09 PM    <DIR>          .github
-Event IOData | req-id 105 | # 11 : 04-11-2022  05:09 PM    <DIR>          src
-Event IOData | req-id 105 | # 12 : 04-11-2022  09:58 PM                91 .gitconfig
-Event IOData | req-id 105 | # 13 : 04-11-2022  09:59 PM             1,091 LICENSE
-Event IOData | req-id 105 | # 14 : 04-11-2022  10:11 PM               344 .gitignore
-Event IOData | req-id 105 | # 19 : 04-11-2022  10:45 PM             3,600 README.md
+Event IOData | req-id 105 | # 6 : 04-11-2022  01:53 PM               210 rustfmt.toml
+Event IOData | req-id 105 | # 7 : 04-11-2022  04:58 PM               682 Cargo.toml
+Event IOData | req-id 105 | # 8 : 04-11-2022  05:09 PM    <DIR>          .github
+Event IOData | req-id 105 | # 9 : 04-11-2022  05:09 PM    <DIR>          src
+Event IOData | req-id 105 | # 10 : 04-11-2022  09:58 PM                91 .gitconfig
+Event IOData | req-id 105 | # 11 : 04-11-2022  09:59 PM             1,091 LICENSE
+Event IOData | req-id 105 | # 12 : 04-11-2022  10:11 PM               344 .gitignore
+Event IOData | req-id 105 | # 13 : 04-11-2022  10:45 PM             3,600 README.md
 Event IOEof | req-id 105
 Event Exited | req-id 105
 test_using_sh_output_streaming pipe-line ()
