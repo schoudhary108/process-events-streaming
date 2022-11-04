@@ -96,101 +96,101 @@ fn check_and_trigger_callback(
 }
 
 /**
-Run a process based on the provided arguments.
-Generates various events [`ProcessEvent`] according to the process's life-cycle, process's information and data [`ProcessData`] associated with that event
+ Run a process based on the provided arguments.
+ Generates various events [`ProcessEvent`] according to the process's life-cycle, process's information and data [`ProcessData`] associated with that event
 
-# Arguments
-request_id : [`u32`] // custom unique numeric id to relate the various callbacks for a particular process execution session
+ # Arguments
+ request_id : [`u32`] // custom unique numeric id to relate the various callbacks for a particular process execution session
 
-use_shell : [`bool`] // use shell mode or direct executable path based execution
+ use_shell : [`bool`] // use shell mode or direct executable path based execution
 
-cmd_line : [`Vec<Vec<String>>`] // (2D Array) Vector of command lines(along with arguments). For a single command line one vector element is enough,
-for the multiple pipelines usecase e.g. output of one to provide to the next, use multiple vector elements of command lines.
+ cmd_line : [`Vec<Vec<String>>`] // (2D Array) Vector of command lines(along with arguments). For a single command line one vector element is enough,
+ for the multiple pipelines usecase e.g. output of one to provide to the next, use multiple vector elements of command lines.
 
-callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
+ callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
 
 
-# Examples
+ # Examples
 
-```
-// setup callback for the process events and data streaming
-
-let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
-            match status {
-                ProcessEvent::Started => {
-                    println!(
-                        "Event {:?} | req-id {}  | Pids: {:?}",
-                        status, data.request_id, data.pids
-                    );
-                }
-                ProcessEvent::IOData => {
-                    println!(
-                        "Event {:?} | req-id {} | # {} : {}",
-                        status, data.request_id, data.line_number, data.line
-                    );
-                    //demo how to kill/stop
-                    //_ = data.kill();
-                    // //or return false if line_number check, to exit the process
-                    // if data.line_number == 1 {
-                    //     return Some(false);
-                    // }
-                    //
-                    // // or return false if a condition is true based on the output, to exit the process
-                    // if data.line.contains("Sandy") {
-                    //     return Some(false);
-                    // }
-                }
-
-                other => {
-                    if !data.line.is_empty() {
-                        println!(
-                            "Event {:?} | req-id {} | additional detail(s): {}",
-                            other, data.request_id, data.line
-                        );
-                    } else {
-                        println!("Event {:?} | req-id {}", other, data.request_id);
-                    }
-                }
-            }
-            Some(true)
- };
  ```
+// // setup callback for the process events and data streaming
+// use process_events_streaming::{run_process, ProcessData, ProcessEvent};
+// use std::{thread, time::Duration};
+// let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
+//             match status {
+//                 ProcessEvent::Started => {
+//                     println!(
+//                         "Event {:?} | req-id {}  | Pids: {:?}",
+//                         status, data.request_id, data.pids
+//                     );
+//                 }
+//                 ProcessEvent::IOData => {
+//                     println!(
+//                         "Event {:?} | req-id {} | # {} : {}",
+//                         status, data.request_id, data.line_number, data.line
+//                     );
+//                     //demo how to kill/stop
+//                     //_ = data.kill();
+//                     // //or return false if line_number check, to exit the process
+//                     // if data.line_number == 1 {
+//                     //     return Some(false);
+//                     // }
+//                     //
+//                     // // or return false if a condition is true based on the output, to exit the process
+//                     // if data.line.contains("Sandy") {
+//                     //     return Some(false);
+//                     // }
+//                 }
+//
+//                 other => {
+//                     if !data.line.is_empty() {
+//                         println!(
+//                             "Event {:?} | req-id {} | additional detail(s): {}",
+//                             other, data.request_id, data.line
+//                         );
+//                     } else {
+//                         println!("Event {:?} | req-id {}", other, data.request_id);
+//                     }
+//                 }
+//             }
+//             Some(true)
+//  };
+//
+//
+//  //using shell mode, prints hi and waits for 3 seconds. Events are sent to provided callback
+//
+//  run_process(
+//      102,
+//      true,
+//      vec![vec![
+//          String::from("echo"),
+//          String::from("hi"),
+//          String::from("&"),
+//          String::from("timeout"),
+//          String::from("/t"),
+//          String::from("3"),
+//      ]],
+//      Some(&callback)
+//  );
+//
+//  //current dir listing and sorting of the the piped output from previous command 'dir'
+//  run_process(
+//      105,
+//      true,
+//      vec![vec![String::from("dir")], vec![String::from("sort"),]],
+//      Some(&callback)
+//  );
+//
+//  //using cmd mode, starts calculator application in windows. Callback is provide 'None' to ignore the events
+//  run_process(101, false, vec![vec![String::from("calc")]], None);
+//
+//  //running process using a thread
+//  _ = thread::spawn(move || {
+//             run_process(101, false, vec![vec![String::from("calc")]], None);
+//     });
  ```
- //using shell mode, prints hi and waits for 3 seconds. Events are sent to provided callback
-
- run_process(
-     102,
-     true,
-     vec![vec![
-         String::from("echo"),
-         String::from("hi"),
-         String::from("&"),
-         String::from("timeout"),
-         String::from("/t"),
-         String::from("3"),
-     ]],
-     Some(&callback)
- );
-
- //current dir listing and sorting of the the piped output from previous command 'dir'
- run_process(
-     105,
-     true,
-     vec![vec![String::from("dir")], vec![String::from("sort"),]],
-     Some(&callback)
- );
-
- //using cmd mode, starts calculator application in windows. Callback is provide 'None' to ignore the events
- run_process(101, false, vec![vec![String::from("calc")]], None);
-
- //running process using a thread
- _ = thread::spawn(move || {
-            run_process(101, false, vec![vec![String::from("calc")]], None);
-    });
-
-
-```
 */
+
 pub fn run_process(
     request_id: u32,
     use_shell: bool,
