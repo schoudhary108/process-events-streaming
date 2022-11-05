@@ -10,8 +10,8 @@ request_id : [`u32`] // custom unique numeric id to relate the various callbacks
 
 use_shell : [`bool`] // use shell mode or direct executable path based execution
 
-cmd_line : [`Vec<Vec<String>>`] // Vector of commandline alog with arguments. For a single command line one vector element is enough,
-for the pipe lines use case output of one to provide to the next use Vector of Commandlines.
+cmd_line : [`Vec<Vec<String>>`] // Vector of command line along with arguments. For a single command line one vector element is enough,
+for the pipe lines use case output of one to provide to the next use Vector of Command lines.
 
 callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
 
@@ -50,7 +50,7 @@ let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
                 other => {
                     if !data.line.is_empty() {
                         println!(
-                            "Event {:?} | req-id {} | addational detail(s): {}",
+                            "Event {:?} | req-id {} | additional detail(s): {}",
                             other, data.request_id, data.line
                         );
                     } else {
@@ -88,7 +88,7 @@ let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
 
 File [`../src/lib.rs`] contains examples in detail
 
-Sample ouput of the process events from the tests
+Sample output of the process events from the tests
 
 ```
 running 2 tests
@@ -119,7 +119,7 @@ Event IOEof | req-id 106
 Event Exited | req-id 106
 test_using_sh_output_streaming double quotes ()
 
-Event StartError | req-id 107 | additional detail(s): "Commandline - arguments are unavailable!"
+Event StartError | req-id 107 | additional detail(s): "Command line - arguments are unavailable!"
 test_using_sh_output_streaming no arguments means error ()
 
 test tests::test_using_sh_output_streaming ... ok
@@ -139,6 +139,6 @@ Licensed under
 
 ## Dependency
 
-This library is using a wondeful library 'duct' for low level process handling
+This library is using a wonderful library 'duct' for low level process handling
 
 

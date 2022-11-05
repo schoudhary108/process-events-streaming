@@ -14,9 +14,9 @@ pub enum ProcessEvent {
     Starting,
     /// Process is started
     Started,
-    /// Error occured while starting the process itself
+    /// Error occurred while starting the process itself
     StartError,
-    /// Process started but error occured during reading the output data
+    /// Process started but error occurred during reading the output data
     IOError,
     /// Process started and output data reader reached to the EOF, means process's output data is unavailable
     IOEof,
@@ -29,7 +29,7 @@ pub enum ProcessEvent {
     KillRequested,
     /// Process which was started earlier now exited
     Exited,
-    /// A error occured while killing/stopping the process
+    /// A error occurred while killing/stopping the process
     KillError,
 }
 
@@ -83,7 +83,7 @@ impl ProcessData<'_> {
     }
 }
 
-/// check if the callback is registed and if yes then trigger it wi the supplied data
+/// check if the callback is registered and if yes then trigger it wi the supplied data
 fn check_and_trigger_callback(
     callback: &Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>,
     event: &ProcessEvent,
@@ -105,7 +105,7 @@ fn check_and_trigger_callback(
  use_shell : [`bool`] // use shell mode or direct executable path based execution
 
  cmd_line : [`Vec<Vec<String>>`] // (2D Array) Vector of command lines(along with arguments). For a single command line one vector element is enough,
- for the multiple pipelines usecase e.g. output of one to provide to the next, use multiple vector elements of command lines.
+ for the multiple pipelines use case e.g. output of one to provide to the next, use multiple vector elements of command lines.
 
  callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
 
@@ -204,7 +204,7 @@ pub fn run_process(
     if cmd_line.len() == 0 || cmd_line[0].len() == 0 {
         process_data
             .line
-            .push_str(format!("{:?}", "Commandline - arguments are unavailable!").as_str());
+            .push_str(format!("{:?}", "Command line - arguments are unavailable!").as_str());
         check_and_trigger_callback(&callback, &ProcessEvent::StartError, &process_data);
         return;
     }
@@ -283,7 +283,7 @@ pub fn run_process(
     process_data.reader = None;
 }
 
-/// handle pipeline based multiple commandlines
+/// handle pipeline based multiple command lines
 fn handle_pipeline(cmd_line: Vec<Vec<String>>, use_shell: bool) -> Expression {
     let mut cmd_pipeline;
     if use_shell {
@@ -372,7 +372,7 @@ mod tests {
                 other => {
                     if !data.line.is_empty() {
                         println!(
-                            "Event {:?} | req-id {} | addational detail(s): {}",
+                            "Event {:?} | req-id {} | additional detail(s): {}",
                             other, data.request_id, data.line
                         );
                     } else {
