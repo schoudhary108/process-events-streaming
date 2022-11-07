@@ -1,8 +1,11 @@
 use duct::{cmd, Expression, ReaderHandle};
 use std::ffi::OsString;
+use std::fmt::Error;
 use std::io::{BufRead, BufReader};
 
-use std::io;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::{io, thread};
 
 /// Various events associated with process's life-cycle
 ///
@@ -36,18 +39,14 @@ pub enum ProcessEvent {
 /// Various fields related to the process
 ///
 pub struct ProcessData<'a> {
-    /// A unique request-id / session-id
-    pub request_id: u32,
-    /// List of child pids
-    pub pids: Vec<u32>,
-    /// Process's STDOUT & STDERR output's line number
+    /// Request data
+    request: Option<Arc<ProcessRequest>>,
+    /// Line number from output of the Process's STDOUT & STDERR
     pub line_number: i64,
-    /// Process's STDOUT & STDERR output's line
+    /// A single line data from output of the Process's STDOUT & STDERR
     pub line: String,
     /// Internal reader handle for managing the process
     reader: Option<&'a ReaderHandle>,
-    /// Callback to register for the process events
-    callback: Option<&'a dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>,
 }
 
 impl ProcessData<'_> {
@@ -55,189 +54,234 @@ impl ProcessData<'_> {
     ///
     pub fn new() -> Self {
         Self {
-            request_id: 0,
-            pids: vec![],
+            request: None,
             line_number: 0,
             line: String::new(),
             reader: None,
-            callback: None,
         }
     }
     /// Kill the running process
-    ///
     pub fn kill(&self) -> io::Result<()> {
         Ok(if self.reader.is_some() {
-            if self.callback.is_some() {
-                self.callback.unwrap()(&ProcessEvent::KillRequested, &self);
-            }
+            check_and_trigger_callback(
+                &self.request.as_ref().unwrap(),
+                &ProcessEvent::KillRequested,
+                &self,
+            );
             return self.reader.as_ref().unwrap().kill();
         })
     }
 
     /// Get the list of child pids
-    pub fn child_pids(&mut self) -> &Vec<u32> {
+    pub fn child_pids(&self) -> Vec<u32> {
         if self.reader.is_some() {
-            self.pids = self.reader.as_ref().unwrap().pids();
+            return self.reader.as_ref().unwrap().pids();
         }
-        self.pids.as_ref()
+        return vec![];
     }
 }
 
 /// check if the callback is registered and if yes then trigger it wi the supplied data
 fn check_and_trigger_callback(
-    callback: &Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>,
+    request: &Arc<ProcessRequest>,
     event: &ProcessEvent,
     data: &ProcessData,
 ) -> Option<bool> {
-    if callback.is_some() {
-        return callback.unwrap()(event, data);
+    if request.callback.as_ref().is_some() {
+        return request.callback.as_ref().unwrap()(event, data);
     };
     Some(true)
 }
 
-/**
- Run a process based on the provided arguments.
- Generates various events [`ProcessEvent`] according to the process's life-cycle, process's information and data [`ProcessData`] associated with that event
+unsafe impl Sync for ProcessRequest {}
+unsafe impl Send for ProcessRequest {}
 
- # Arguments
- request_id : [`u32`] // custom unique numeric id to relate the various callbacks for a particular process execution session
+/// A request structure to start a process
+pub struct ProcessRequest {
+    /// Custom unique numeric id to relate the various callbacks for a particular process execution session
+    pub request_id: u32,
+    /// Use shell mode or direct executable path based execution
+    pub use_shell: bool,
+    /// Use blocking or non blocking mode using internal threads
+    pub non_blocking_mode: bool,
+    /// (2D Array) Vector of command line along with arguments. For a single command line one vector element is enough. For the pipe line use case where output of one command to provide to the next command, use Vector of command lines.
+    pub cmd_line: Vec<Vec<String>>,
+    /// Register callback to get various events and process output, for no callbacks use None
+    pub callback: Option<Arc<dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool> + 'static>>,
+}
 
- use_shell : [`bool`] // use shell mode or direct executable path based execution
+impl ProcessRequest {
+    /**
+     Run a process based on the provided process request which is events based multi process execution(blocking & non-blocking modes) in parallel and with data streaming
+     Generates various events [`ProcessEvent`] according to the process's life-cycle, process's information and data [`ProcessData`] associated with that event
+     # Arguments
+     ProcessRequest : [`ProcessRequest`] // A request structure to start a process
+     # Return
+     For Blocking mode it returns [`None`] and for Non-Blocking mode it will return [`Some(io::Result<JoinHandle<()>>)`], so the caller can join & wait for the process completion if needed!
+     # Examples
+     ```
+    // Setup callback for the process events and data streaming
+    //
+    // use process_events_streaming::{ProcessRequest, ProcessData, ProcessEvent};
+    // use std::{thread, time::Duration};
+    //  let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
+    //         match status {
+    //             ProcessEvent::Started => {
+    //                 println!(
+    //                     "Event {:?} | req-id {}  | Pids: {:?}",
+    //                     status,
+    //                     data.request.as_ref().unwrap().request_id,
+    //                     data.pids
+    //                 );
+    //             }
+    //             ProcessEvent::IOData => {
+    //                 println!(
+    //                     "Event {:?} | req-id {} | # {} : {}",
+    //                     status,
+    //                     data.request.as_ref().unwrap().request_id,
+    //                     data.line_number,
+    //                     data.line
+    //                 );
+    //
+    //                 //demo how to kill/stop
+    //                 // //using kill api
+    //                 //_ = data.kill();
+    //                 // //or return false to exit the process, based on the line_number value
+    //                 // if data.line_number == 1 {
+    //                 //     return Some(false);
+    //                 // }
+    //                 // // or return false to exit the process, if a condition is true based on the output data
+    //                 // if data.line.contains("Sandy") {
+    //                 //     return Some(false);
+    //                 // }
+    //             }
+    //             other => {
+    //                 if !data.line.is_empty() {
+    //                     println!(
+    //                         "Event {:?} | req-id {} | additional detail(s): {}",
+    //                         other,
+    //                         data.request.as_ref().unwrap().request_id,
+    //                         data.line
+    //                     );
+    //                 } else {
+    //                     println!(
+    //                         "Event {:?} | req-id {}",
+    //                         other,
+    //                         data.request.as_ref().unwrap().request_id
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //         Some(true)
+    //     };
+    //
+    //
+    //    ProcessRequest::start(ProcessRequest {
+    //         request_id: 161,
+    //         callback: Some(Arc::new(callback)),
+    //         use_shell: true,
+    //         cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
+    //         non_blocking_mode: true,
+    //     });
+    //
+    //     //check & wait for the non blocking mode
+    //     if result1.is_some() {
+    //         if result1.as_ref().unwrap().is_ok() {
+    //             println!(
+    //                 "Start - join waiting over in non blocking mode {:?}",
+    //                 result1
+    //                     .unwrap()
+    //                     .unwrap()
+    //                     .join()
+    //                     .expect("Couldn't join on the associated thread")
+    //             );
+    //         } else {
+    //             println!(
+    //                 "Start - Error in non blocking mode {:?}",
+    //                 result1.unwrap().err()
+    //             );
+    //         }
+    //     } else {
+    //         println!("Start - It was a blocking mode, so nothing to wait for!");
+    //     }
+    //
+    //    println!(
+    //     "test_using_sh_output_streaming, start calc in windows {:?}",
+    //     ProcessRequest::start(ProcessRequest {
+    //         request_id: 191,
+    //         callback: Some(Arc::new(callback)),
+    //         use_shell: true,
+    //         cmd_line: vec![vec![String::from("calc")]],
+    //         non_blocking_mode: false,
+    //     }));
+     ```
+    */
+    pub fn start(process_request: ProcessRequest) -> Option<io::Result<JoinHandle<()>>> {
+        let request = Arc::new(process_request);
+        if request.non_blocking_mode {
+            let thread_handle = thread::Builder::new()
+                .name(format!("pes_th_rq_{}", request.request_id).into())
+                .spawn(move || {
+                    start_process(request);
+                });
+            return Some(thread_handle);
+        } else {
+            start_process(request);
+        }
+        None
+    }
+}
 
- cmd_line : [`Vec<Vec<String>>`] // (2D Array) Vector of command lines(along with arguments). For a single command line one vector element is enough,
- for the multiple pipelines use case e.g. output of one to provide to the next, use multiple vector elements of command lines.
-
- callback : [`Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>`] // register callback to get various events and process output, for no callbacks use None
-
-
- # Examples
-
- ```
-// // setup callback for the process events and data streaming
-// use process_events_streaming::{run_process, ProcessData, ProcessEvent};
-// use std::{thread, time::Duration};
-// let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
-//             match status {
-//                 ProcessEvent::Started => {
-//                     println!(
-//                         "Event {:?} | req-id {}  | Pids: {:?}",
-//                         status, data.request_id, data.pids
-//                     );
-//                 }
-//                 ProcessEvent::IOData => {
-//                     println!(
-//                         "Event {:?} | req-id {} | # {} : {}",
-//                         status, data.request_id, data.line_number, data.line
-//                     );
-//                     //demo how to kill/stop
-//                     //_ = data.kill();
-//                     // //or return false if line_number check, to exit the process
-//                     // if data.line_number == 1 {
-//                     //     return Some(false);
-//                     // }
-//                     //
-//                     // // or return false if a condition is true based on the output, to exit the process
-//                     // if data.line.contains("Sandy") {
-//                     //     return Some(false);
-//                     // }
-//                 }
-//
-//                 other => {
-//                     if !data.line.is_empty() {
-//                         println!(
-//                             "Event {:?} | req-id {} | additional detail(s): {}",
-//                             other, data.request_id, data.line
-//                         );
-//                     } else {
-//                         println!("Event {:?} | req-id {}", other, data.request_id);
-//                     }
-//                 }
-//             }
-//             Some(true)
-//  };
-//
-//
-//  //using shell mode, prints hi and waits for 3 seconds. Events are sent to provided callback
-//
-//  run_process(
-//      102,
-//      true,
-//      vec![vec![
-//          String::from("echo"),
-//          String::from("hi"),
-//          String::from("&"),
-//          String::from("timeout"),
-//          String::from("/t"),
-//          String::from("3"),
-//      ]],
-//      Some(&callback)
-//  );
-//
-//  //current dir listing and sorting of the the piped output from previous command 'dir'
-//  run_process(
-//      105,
-//      true,
-//      vec![vec![String::from("dir")], vec![String::from("sort"),]],
-//      Some(&callback)
-//  );
-//
-//  //using cmd mode, starts calculator application in windows. Callback is provide 'None' to ignore the events
-//  run_process(101, false, vec![vec![String::from("calc")]], None);
-//
-//  //running process using a thread
-//  _ = thread::spawn(move || {
-//             run_process(101, false, vec![vec![String::from("calc")]], None);
-//     });
- ```
-*/
-
-pub fn run_process(
-    request_id: u32,
-    use_shell: bool,
-    cmd_line: Vec<Vec<String>>,
-    callback: Option<&dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool>>,
-) {
+fn start_process(request: Arc<ProcessRequest>) {
     let mut process_data = ProcessData::new();
     process_data.line.clear();
-    process_data.request_id = request_id;
-    process_data.callback = callback;
-    if cmd_line.len() == 0 || cmd_line[0].len() == 0 {
+    process_data.request = Some(Arc::clone(&request));
+    if request.as_ref().cmd_line.len() == 0 || request.as_ref().cmd_line[0].len() == 0 {
         process_data
             .line
             .push_str(format!("{:?}", "Command line - arguments are unavailable!").as_str());
-        check_and_trigger_callback(&callback, &ProcessEvent::StartError, &process_data);
+        check_and_trigger_callback(&request, &ProcessEvent::StartError, &process_data);
         return;
     }
+    process_data.line.push_str(
+        format!(
+            "Executing in thread-context -> id: {:?}, name: {:?}",
+            thread::current().id(),
+            thread::current().name()
+        )
+        .as_str(),
+    );
+    check_and_trigger_callback(&request, &ProcessEvent::Starting, &process_data);
 
-    check_and_trigger_callback(&callback, &ProcessEvent::Starting, &process_data);
-
-    let handle = handle_pipeline(cmd_line, use_shell);
-    let reader = &handle.stderr_to_stdout().reader();
-
-    match reader {
-        Ok(reader) => {
-            process_data.reader = Some(reader);
-            process_data.pids = reader.pids();
-            check_and_trigger_callback(&callback, &ProcessEvent::Started, &process_data);
-            let mut buffer_reader = BufReader::new(reader);
+    let process_req = &request;
+    let stdout_reader = handle_pipeline(&request).stderr_to_stdout().reader();
+    process_data.reader = Some(stdout_reader.as_ref().unwrap());
+    match stdout_reader.as_ref() {
+        Ok(stdout_reader) => {
+            check_and_trigger_callback(process_req, &ProcessEvent::Started, &process_data);
+            let mut buffer_reader = BufReader::new(stdout_reader);
             loop {
                 process_data.line.clear();
                 let result = buffer_reader.read_line(&mut process_data.line);
                 match result {
                     Ok(result) if result == 0 => {
-                        check_and_trigger_callback(&callback, &ProcessEvent::IOEof, &process_data);
+                        check_and_trigger_callback(
+                            process_req,
+                            &ProcessEvent::IOEof,
+                            &process_data,
+                        );
                         break;
                     }
                     Ok(_result) => {
                         process_data.line_number += 1;
                         match check_and_trigger_callback(
-                            &callback,
+                            process_req,
                             &ProcessEvent::IOData,
                             &process_data,
                         ) {
                             Some(value) if value == false => {
                                 check_and_trigger_callback(
-                                    &callback,
+                                    process_req,
                                     &ProcessEvent::ExitRequested,
                                     &process_data,
                                 );
@@ -249,7 +293,7 @@ pub fn run_process(
                     Err(error) => {
                         process_data.line.push_str(format!("{:?}", error).as_str());
                         check_and_trigger_callback(
-                            &callback,
+                            process_req,
                             &ProcessEvent::IOError,
                             &process_data,
                         );
@@ -258,33 +302,39 @@ pub fn run_process(
                 }
             }
             process_data.line.clear();
-            let exit_result = reader.kill();
+            let exit_result = stdout_reader.kill();
 
             match exit_result {
                 Ok(_) => {
-                    check_and_trigger_callback(&callback, &ProcessEvent::Exited, &process_data);
+                    check_and_trigger_callback(process_req, &ProcessEvent::Exited, &process_data);
                 }
                 Err(_) => {
-                    check_and_trigger_callback(&callback, &ProcessEvent::KillError, &process_data);
+                    check_and_trigger_callback(
+                        process_req,
+                        &ProcessEvent::KillError,
+                        &process_data,
+                    );
                 }
             }
         }
         _error => {
-            let reader = reader.as_ref();
+            let reader = stdout_reader.as_ref();
             if reader.err().is_some() {
                 process_data
                     .line
                     .push_str(format!("{:?}", reader.err().unwrap()).as_str());
             }
-            check_and_trigger_callback(&callback, &ProcessEvent::StartError, &process_data);
+            check_and_trigger_callback(process_req, &ProcessEvent::StartError, &process_data);
         }
     }
-    process_data.callback = None;
+    process_data.request = None;
     process_data.reader = None;
 }
 
 /// handle pipeline based multiple command lines
-fn handle_pipeline(cmd_line: Vec<Vec<String>>, use_shell: bool) -> Expression {
+fn handle_pipeline(request: &Arc<ProcessRequest>) -> Expression {
+    let cmd_line = &request.cmd_line;
+    let use_shell = request.use_shell;
     let mut cmd_pipeline;
     if use_shell {
         cmd_pipeline = sh_vector(&cmd_line[0]);
@@ -339,24 +389,30 @@ fn vec_string_to_osstring(input: &Vec<String>) -> Vec<OsString> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{run_process, ProcessData, ProcessEvent};
-    use std::{thread, time::Duration};
+    use crate::{ProcessData, ProcessEvent, ProcessRequest};
+    use std::sync::Arc;
 
     #[test]
-    pub fn test_using_sh_output_streaming() {
+    pub fn test_using_sh_output_streaming_new_version() {
         let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
             match status {
                 ProcessEvent::Started => {
                     println!(
                         "Event {:?} | req-id {}  | Pids: {:?}",
-                        status, data.request_id, data.pids
+                        status,
+                        data.request.as_ref().unwrap().request_id,
+                        data.child_pids()
                     );
                 }
                 ProcessEvent::IOData => {
                     println!(
                         "Event {:?} | req-id {} | # {} : {}",
-                        status, data.request_id, data.line_number, data.line
+                        status,
+                        data.request.as_ref().unwrap().request_id,
+                        data.line_number,
+                        data.line
                     );
+
                     //demo how to kill/stop
                     //_ = data.kill();
                     // //or return false if line_number check, to exit the process
@@ -368,62 +424,149 @@ mod tests {
                     //     return Some(false);
                     // }
                 }
-
                 other => {
                     if !data.line.is_empty() {
                         println!(
                             "Event {:?} | req-id {} | additional detail(s): {}",
-                            other, data.request_id, data.line
+                            other,
+                            data.request.as_ref().unwrap().request_id,
+                            data.line
                         );
                     } else {
-                        println!("Event {:?} | req-id {}", other, data.request_id);
+                        println!(
+                            "Event {:?} | req-id {}",
+                            other,
+                            data.request.as_ref().unwrap().request_id
+                        );
                     }
                 }
             }
             Some(true)
         };
 
-        _ = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(500));
-            println!(
-                "test_using_sh_output_streaming in a thread, no arguments means error {:?}",
-                run_process(104, true, vec![vec![]], Some(&callback))
-            );
-        });
+        let request1 = ProcessRequest {
+            request_id: 121,
+            callback: Some(Arc::new(callback)),
+            use_shell: true,
+            cmd_line: vec![vec![
+                String::from("echo"),
+                String::from("stdout"),
+                String::from("&"),
+                String::from("timeout"),
+                String::from("/t"),
+                String::from("3"),
+                String::from("&"),
+                String::from("echo"),
+                String::from("stderr"),
+                String::from(">&2"),
+            ]],
+            non_blocking_mode: false,
+        };
+
+        let request2 = ProcessRequest {
+            request_id: 151,
+            callback: Some(Arc::new(callback)),
+            use_shell: true,
+            cmd_line: vec![vec![
+                String::from("echo"),
+                String::from("stdout"),
+                String::from("&"),
+                String::from("timeout"),
+                String::from("/t"),
+                String::from("2"),
+                String::from("&"),
+                String::from("echo"),
+                String::from("stderr"),
+                String::from(">&2"),
+            ]],
+            non_blocking_mode: true,
+        };
+
+        // Non blocking mode
+        let result1 = ProcessRequest::start(request1);
+        println!("Returned from Start! of non blocking");
+        // Blocking mode
+        let _result2 = ProcessRequest::start(request2);
+        println!("Returned from Start! of blocking");
+
+        //check & wait for the non blocking mode
+        if result1.is_some() {
+            if result1.as_ref().unwrap().is_ok() {
+                println!(
+                    "Start - join waiting over in non blocking mode {:?}",
+                    result1
+                        .unwrap()
+                        .unwrap()
+                        .join()
+                        .expect("Couldn't join on the associated thread")
+                );
+            } else {
+                println!(
+                    "Start - Error in non blocking mode {:?}",
+                    result1.unwrap().err()
+                );
+            }
+        } else {
+            println!("Start - Nothing to wait for!");
+        }
+
+        let request3 = ProcessRequest {
+            request_id: 161,
+            callback: Some(Arc::new(callback)),
+            use_shell: true,
+            cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
+            non_blocking_mode: true,
+        };
 
         println!(
-            "test_using_sh_output_streaming pipe-line {:?}",
+            "test_using_sh_output_streaming, demo pipe-line {:?}",
             //current dir listing and sort the piped output
-            run_process(
-                105,
-                true,
-                vec![vec![String::from("dir")], vec![String::from("sort"),]],
-                Some(&callback)
-            )
+            ProcessRequest::start(ProcessRequest {
+                request_id: 161,
+                callback: Some(Arc::new(callback)),
+                use_shell: true,
+                cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
+                non_blocking_mode: true,
+            })
         );
 
+        let request4 = ProcessRequest {
+            request_id: 171,
+            callback: Some(Arc::new(callback)),
+            use_shell: true,
+            cmd_line: vec![vec![String::from(r#"echo "Sandy" "#)]],
+            non_blocking_mode: true,
+        };
         println!(
-            "test_using_sh_output_streaming double quotes {:?}",
+            "test_using_sh_output_streaming , demo double quotes {:?}",
             //current dir listing and sort the piped output
-            run_process(
-                106,
-                true,
-                vec![vec![String::from(r#"echo "Sandy" "#),]],
-                Some(&callback)
-            )
+            ProcessRequest::start(request4)
+        );
+
+        let request5 = ProcessRequest {
+            request_id: 181,
+            callback: Some(Arc::new(callback)),
+            use_shell: true,
+            cmd_line: vec![vec![]],
+            non_blocking_mode: true,
+        };
+
+        println!(
+            "test_using_sh_output_streaming, no arguments means start error {:?}",
+            ProcessRequest::start(request5)
         );
 
         println!(
-            "test_using_sh_output_streaming no arguments means error {:?}",
-            run_process(107, true, vec![vec![]], Some(&callback))
+            "test_using_sh_output_streaming, start calc in windows {:?}",
+            ProcessRequest::start(ProcessRequest {
+                request_id: 191,
+                callback: Some(Arc::new(callback)),
+                use_shell: true,
+                cmd_line: vec![vec![String::from("calc")]],
+                non_blocking_mode: false,
+            })
         );
-    }
 
-    #[test]
-    pub fn test_using_cmd_output_streaming() {
-        println!(
-            "test_using_cmd_output_streaming {:?}",
-            run_process(108, false, vec![vec![String::from("calc")]], None)
-        );
+        //
     }
 }
