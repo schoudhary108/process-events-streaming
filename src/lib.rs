@@ -40,7 +40,7 @@ pub enum ProcessEvent {
 ///
 pub struct ProcessData<'a> {
     /// Request data
-    request: Option<Arc<ProcessRequest>>,
+    pub request: Option<Arc<ProcessRequest>>,
     /// Line number from output of the Process's STDOUT & STDERR
     pub line_number: i64,
     /// A single line data from output of the Process's STDOUT & STDERR
