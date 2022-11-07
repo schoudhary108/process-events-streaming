@@ -255,7 +255,9 @@ fn start_process(request: Arc<ProcessRequest>) {
 
     let process_req = &request;
     let stdout_reader = handle_pipeline(&request).stderr_to_stdout().reader();
-    process_data.reader = Some(stdout_reader.as_ref().unwrap());
+    if stdout_reader.as_ref().is_ok() {
+        process_data.reader = Some(stdout_reader.as_ref().unwrap());
+    }
     match stdout_reader.as_ref() {
         Ok(stdout_reader) => {
             check_and_trigger_callback(process_req, &ProcessEvent::Started, &process_data);
