@@ -101,7 +101,7 @@ pub struct ProcessResult {
 }
 
 impl ProcessResult {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             join_handle: None,
             should_exit: None,
@@ -119,7 +119,7 @@ impl ProcessResult {
     }
 
     ///set exit and success data
-    fn set_exit_flag_and_success(
+    pub fn set_exit_flag_and_success(
         &mut self,
         should_exit: bool,
         success: Result<bool, std::io::Error>,
