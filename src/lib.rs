@@ -81,16 +81,52 @@ impl ProcessData<'_> {
     }
 }
 
-/// check if the callback is registered and if yes then trigger it wi the supplied data
-fn check_and_trigger_callback(
-    request: &Arc<ProcessRequest>,
-    event: &ProcessEvent,
-    data: &ProcessData,
-) -> Option<bool> {
-    if request.callback.as_ref().is_some() {
-        return request.callback.as_ref().unwrap()(event, data);
-    };
-    Some(true)
+/// Resulted data received from the process execution
+#[derive(Debug)]
+pub struct ProcessResult {
+    /// In case of non-blocking mode use this to join and wait for the process to complete
+    pub join_handle: Option<io::Result<JoinHandle<ProcessResult>>>,
+    /// Should exit or not the process based on the custom conditions
+    pub should_exit: Option<bool>,
+    /// Process execution was successful or not for the desired outcome
+    pub success: Result<bool, std::io::Error>,
+    /// Date as String vector
+    pub data_vec_str: Option<Vec<String>>,
+    /// Date as true/false
+    pub data_bool: Option<bool>,
+    /// Date as numeric value i128
+    pub data_num: Option<i128>,
+    /// Date as f64 value
+    pub data_decimal: Option<f64>,
+}
+
+impl ProcessResult {
+    fn new() -> Self {
+        Self {
+            join_handle: None,
+            should_exit: None,
+            success: Ok(false),
+            data_vec_str: None,
+            data_bool: None,
+            data_num: None,
+            data_decimal: None,
+        }
+    }
+
+    /// set join handle
+    fn set_join_handle(&mut self, join_handle: Option<io::Result<JoinHandle<ProcessResult>>>) {
+        self.join_handle = join_handle;
+    }
+
+    ///set exit and success data
+    fn set_exit_flag_and_success(
+        &mut self,
+        should_exit: bool,
+        success: Result<bool, std::io::Error>,
+    ) {
+        self.should_exit = Some(should_exit);
+        self.success = success;
+    }
 }
 
 unsafe impl Sync for ProcessRequest {}
@@ -107,7 +143,7 @@ pub struct ProcessRequest {
     /// (2D Array) Vector of command line along with arguments. For a single command line one vector element is enough. For the pipe line use case where output of one command to provide to the next command, use Vector of command lines.
     pub cmd_line: Vec<Vec<String>>,
     /// Register callback to get various events and process output, for no callbacks use None
-    pub callback: Option<Arc<dyn Fn(&ProcessEvent, &ProcessData) -> Option<bool> + 'static>>,
+    pub callback: Option<Arc<dyn Fn(&ProcessEvent, &ProcessData) -> ProcessResult + 'static>>,
 }
 
 impl ProcessRequest {
@@ -117,93 +153,104 @@ impl ProcessRequest {
      # Arguments
      ProcessRequest : [`ProcessRequest`] // A request structure to start a process
      # Return
-     For Blocking mode it returns [`None`] and for Non-Blocking mode it will return [`Some(io::Result<JoinHandle<()>>)`], so the caller can join & wait for the process completion if needed!
+     ProcessResult : [`ProcessResult`] // Contains join handle for non-blocking and data variables
+     For Blocking mode use join_handle [`Option<io::Result<JoinHandle<ProcessResult>>>`], so the caller can join & wait for the process completion if needed!
+     In the callback set the custom data to be retrieved once process execution is over, which will be returned in response of the join call.
      # Examples
      ```
     // Setup callback for the process events and data streaming
     //
-    // use process_events_streaming::{ProcessRequest, ProcessData, ProcessEvent};
+    // use process_events_streaming::{ProcessRequest, ProcessResult, ProcessData, ProcessEvent};
     // use std::{thread, time::Duration};
-    //  let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
-    //         match status {
-    //             ProcessEvent::Started => {
-    //                 println!(
-    //                     "Event {:?} | req-id {}  | Pids: {:?}",
-    //                     status,
-    //                     data.request.as_ref().unwrap().request_id,
-    //                     data.pids
-    //                 );
-    //             }
-    //             ProcessEvent::IOData => {
-    //                 println!(
-    //                     "Event {:?} | req-id {} | # {} : {}",
-    //                     status,
-    //                     data.request.as_ref().unwrap().request_id,
-    //                     data.line_number,
-    //                     data.line
-    //                 );
+    //      let callback = |status: &ProcessEvent, data: &ProcessData| -> ProcessResult {
+    //          match status {
+    //              ProcessEvent::Started => {
+    //                  println!(
+    //                      "Event {:?} | req-id {}  | Pids: {:?}",
+    //                      status,
+    //                      data.request.as_ref().unwrap().request_id,
+    //                      data.child_pids()
+    //                  );
+    //              }
+    //              ProcessEvent::IOData => {
+    //                  println!(
+    //                      "Event {:?} | req-id {} | # {} : {}",
+    //                      status,
+    //                      data.request.as_ref().unwrap().request_id,
+    //                      data.line_number,
+    //                      data.line
+    //                  );
+    //                  //now assume we want to exit the process with some data
+    //                  let mut result = ProcessResult::new();
+    //                  result.set_exit_flag_and_success(true, Ok(true));
+    //                  result.data_num = Some(8111981);
+    //                  result.data_vec_str = Some(vec![String::from("I found my hidden data!")]);
+    //                  return result;
     //
-    //                 //demo how to kill/stop
-    //                 // //using kill api
-    //                 //_ = data.kill();
-    //                 // //or return false to exit the process, based on the line_number value
-    //                 // if data.line_number == 1 {
-    //                 //     return Some(false);
-    //                 // }
-    //                 // // or return false to exit the process, if a condition is true based on the output data
-    //                 // if data.line.contains("Sandy") {
-    //                 //     return Some(false);
-    //                 // }
-    //             }
-    //             other => {
-    //                 if !data.line.is_empty() {
-    //                     println!(
-    //                         "Event {:?} | req-id {} | additional detail(s): {}",
-    //                         other,
-    //                         data.request.as_ref().unwrap().request_id,
-    //                         data.line
-    //                     );
-    //                 } else {
-    //                     println!(
-    //                         "Event {:?} | req-id {}",
-    //                         other,
-    //                         data.request.as_ref().unwrap().request_id
-    //                     );
-    //                 }
-    //             }
-    //         }
-    //         Some(true)
-    //     };
+    //                  //demo how to kill/stop
+    //                  //_ = data.kill();
+    //              }
+    //              other => {
+    //                  if !data.line.is_empty() {
+    //                      println!(
+    //                          "Event {:?} | req-id {} | additional detail(s): {}",
+    //                          other,
+    //                          data.request.as_ref().unwrap().request_id,
+    //                          data.line
+    //                      );
+    //                  } else {
+    //                      println!(
+    //                          "Event {:?} | req-id {}",
+    //                          other,
+    //                          data.request.as_ref().unwrap().request_id
+    //                      );
+    //                  }
+    //              }
+    //          }
+    //          ProcessResult::new()
+    //      };
     //
     //
-    //    ProcessRequest::start(ProcessRequest {
-    //         request_id: 161,
-    //         callback: Some(Arc::new(callback)),
-    //         use_shell: true,
-    //         cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
-    //         non_blocking_mode: true,
-    //     });
     //
-    //     //check & wait for the non blocking mode
-    //     if result1.is_some() {
-    //         if result1.as_ref().unwrap().is_ok() {
-    //             println!(
-    //                 "Start - join waiting over in non blocking mode {:?}",
-    //                 result1
-    //                     .unwrap()
-    //                     .unwrap()
-    //                     .join()
-    //                     .expect("Couldn't join on the associated thread")
-    //             );
-    //         } else {
-    //             println!(
-    //                 "Start - Error in non blocking mode {:?}",
-    //                 result1.unwrap().err()
-    //             );
-    //         }
-    //     } else {
-    //         println!("Start - It was a blocking mode, so nothing to wait for!");
-    //     }
+    //    let request2 = ProcessRequest {
+    //        request_id: 151,
+    //        callback: Some(Arc::new(callback)),
+    //        use_shell: true,
+    //        cmd_line: vec![vec![
+    //            String::from("echo"),
+    //            String::from("stdout"),
+    //            String::from("&"),
+    //            String::from("echo"),
+    //            String::from("stderr"),
+    //            String::from(">&2"),
+    //        ]],
+    //        non_blocking_mode: true,
+    //    };
+    //
+    //    // non Blocking mode
+    //    let process_result = ProcessRequest::start(request2);
+    //    println!("Returned from Start! of non blocking");
+    //
+    //    let mut internal_data = ProcessResult::new();
+    //    //check & wait for the non blocking mode
+    //    if process_result.join_handle.is_some() {
+    //        if process_result.join_handle.as_ref().unwrap().is_ok() {
+    //            internal_data = process_result.join_handle.unwrap().unwrap().join().unwrap();
+    //            println!(
+    //                "Start - join waiting over in non blocking mode {:?}",
+    //                internal_data
+    //            );
+    //        } else {
+    //            internal_data.success = Err(process_result.join_handle.unwrap().err().unwrap());
+    //            println!(
+    //                "Start - Error in non blocking mode {:?}",
+    //                internal_data.success
+    //            );
+    //        }
+    //    } else {
+    //        internal_data = process_result;
+    //    }
+    //    println!("result dump : {:?}", internal_data);
     //
     //    println!(
     //     "test_using_sh_output_streaming, start calc in windows {:?}",
@@ -216,23 +263,26 @@ impl ProcessRequest {
     //     }));
      ```
     */
-    pub fn start(process_request: ProcessRequest) -> Option<io::Result<JoinHandle<()>>> {
+    pub fn start(process_request: ProcessRequest) -> ProcessResult {
         let request = Arc::new(process_request);
         if request.non_blocking_mode {
-            let thread_handle = thread::Builder::new()
+            let join_handle = thread::Builder::new()
                 .name(format!("pes_th_rq_{}", request.request_id).into())
                 .spawn(move || {
-                    start_process(request);
+                    let response = start_process(request);
+                    return response;
                 });
-            return Some(thread_handle);
+            let mut result = ProcessResult::new();
+            result.set_join_handle(Some(join_handle));
+            return result;
         } else {
-            start_process(request);
+            return start_process(request);
         }
-        None
     }
 }
 
-fn start_process(request: Arc<ProcessRequest>) {
+fn start_process(request: Arc<ProcessRequest>) -> ProcessResult {
+    let mut process_result = ProcessResult::new();
     let mut process_data = ProcessData::new();
     process_data.line.clear();
     process_data.request = Some(Arc::clone(&request));
@@ -240,8 +290,7 @@ fn start_process(request: Arc<ProcessRequest>) {
         process_data
             .line
             .push_str(format!("{:?}", "Command line - arguments are unavailable!").as_str());
-        check_and_trigger_callback(&request, &ProcessEvent::StartError, &process_data);
-        return;
+        return check_and_trigger_callback(&request, &ProcessEvent::StartError, &process_data);
     }
     process_data.line.push_str(
         format!(
@@ -251,7 +300,7 @@ fn start_process(request: Arc<ProcessRequest>) {
         )
         .as_str(),
     );
-    check_and_trigger_callback(&request, &ProcessEvent::Starting, &process_data);
+    process_result = check_and_trigger_callback(&request, &ProcessEvent::Starting, &process_data);
 
     let process_req = &request;
     let stdout_reader = handle_pipeline(&request).stderr_to_stdout().reader();
@@ -260,7 +309,8 @@ fn start_process(request: Arc<ProcessRequest>) {
     }
     match stdout_reader.as_ref() {
         Ok(stdout_reader) => {
-            check_and_trigger_callback(process_req, &ProcessEvent::Started, &process_data);
+            process_result =
+                check_and_trigger_callback(process_req, &ProcessEvent::Started, &process_data);
             let mut buffer_reader = BufReader::new(stdout_reader);
             loop {
                 process_data.line.clear();
@@ -276,12 +326,16 @@ fn start_process(request: Arc<ProcessRequest>) {
                     }
                     Ok(_result) => {
                         process_data.line_number += 1;
-                        match check_and_trigger_callback(
+                        process_result = check_and_trigger_callback(
                             process_req,
                             &ProcessEvent::IOData,
                             &process_data,
-                        ) {
-                            Some(value) if value == false => {
+                        );
+                        match &process_result {
+                            process_result
+                                if process_result.should_exit.is_some()
+                                    && process_result.should_exit.unwrap() == true =>
+                            {
                                 check_and_trigger_callback(
                                     process_req,
                                     &ProcessEvent::ExitRequested,
@@ -289,6 +343,7 @@ fn start_process(request: Arc<ProcessRequest>) {
                                 );
                                 break;
                             }
+
                             _other => {}
                         }
                     }
@@ -331,6 +386,7 @@ fn start_process(request: Arc<ProcessRequest>) {
     }
     process_data.request = None;
     process_data.reader = None;
+    process_result
 }
 
 /// handle pipeline based multiple command lines
@@ -357,6 +413,18 @@ fn handle_pipeline(request: &Arc<ProcessRequest>) -> Expression {
         }
     }
     cmd_pipeline
+}
+
+/// check if the callback is registered and if yes then trigger it wi the supplied data
+fn check_and_trigger_callback(
+    request: &Arc<ProcessRequest>,
+    event: &ProcessEvent,
+    data: &ProcessData,
+) -> ProcessResult {
+    if request.callback.as_ref().is_some() {
+        return request.callback.as_ref().unwrap()(event, data);
+    };
+    ProcessResult::new()
 }
 
 /// create and run a shell based command, using vector of cmd and arguments
@@ -391,12 +459,12 @@ fn vec_string_to_osstring(input: &Vec<String>) -> Vec<OsString> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ProcessData, ProcessEvent, ProcessRequest};
-    use std::sync::Arc;
+    use crate::{ProcessData, ProcessEvent, ProcessRequest, ProcessResult};
+    use std::{any::Any, fmt::Error, sync::Arc};
 
     #[test]
     pub fn test_using_sh_output_streaming_new_version() {
-        let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
+        let callback = |status: &ProcessEvent, data: &ProcessData| -> ProcessResult {
             match status {
                 ProcessEvent::Started => {
                     println!(
@@ -415,16 +483,13 @@ mod tests {
                         data.line
                     );
 
+                    let mut result = ProcessResult::new();
+                    result.set_exit_flag_and_success(true, Ok(true));
+                    result.data_num = Some(8111981);
+                    result.data_vec_str = Some(vec![String::from("I found my hidden data!")]);
+                    return result;
                     //demo how to kill/stop
                     //_ = data.kill();
-                    // //or return false if line_number check, to exit the process
-                    // if data.line_number == 1 {
-                    //     return Some(false);
-                    // }
-                    // // or return false if a condition is true based on the output, to exit the process
-                    // if data.line.contains("Sandy") {
-                    //     return Some(false);
-                    // }
                 }
                 other => {
                     if !data.line.is_empty() {
@@ -443,7 +508,7 @@ mod tests {
                     }
                 }
             }
-            Some(true)
+            ProcessResult::new()
         };
 
         let request1 = ProcessRequest {
@@ -484,41 +549,28 @@ mod tests {
             non_blocking_mode: true,
         };
 
-        // Non blocking mode
-        let result1 = ProcessRequest::start(request1);
+        // non Blocking mode
+        let process_result = ProcessRequest::start(request2);
         println!("Returned from Start! of non blocking");
-        // Blocking mode
-        let _result2 = ProcessRequest::start(request2);
-        println!("Returned from Start! of blocking");
 
+        let mut internal_data = ProcessResult::new();
         //check & wait for the non blocking mode
-        if result1.is_some() {
-            if result1.as_ref().unwrap().is_ok() {
-                println!(
-                    "Start - join waiting over in non blocking mode {:?}",
-                    result1
-                        .unwrap()
-                        .unwrap()
-                        .join()
-                        .expect("Couldn't join on the associated thread")
-                );
+        if process_result.join_handle.is_some() {
+            if process_result.join_handle.as_ref().unwrap().is_ok() {
+                internal_data = process_result.join_handle.unwrap().unwrap().join().unwrap();
+                println!("Start - join waiting over in non blocking mode");
             } else {
-                println!(
-                    "Start - Error in non blocking mode {:?}",
-                    result1.unwrap().err()
-                );
+                internal_data.success = Err(process_result.join_handle.unwrap().err().unwrap());
+                println!("Start - Error in non blocking mode");
             }
         } else {
-            println!("Start - Nothing to wait for!");
+            internal_data = process_result;
         }
+        println!("result dump : {:?}", internal_data);
 
-        let request3 = ProcessRequest {
-            request_id: 161,
-            callback: Some(Arc::new(callback)),
-            use_shell: true,
-            cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
-            non_blocking_mode: true,
-        };
+        //blocking mode
+        let result1 = ProcessRequest::start(request1);
+        println!("Returned from Start! of blocking");
 
         println!(
             "test_using_sh_output_streaming, demo pipe-line {:?}",

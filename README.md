@@ -12,90 +12,98 @@ Rust library for simple yet powerful events based multi process execution(blocki
  ```
 // Setup callback (for the process events and data streaming)
 //
- use process_events_streaming::{ProcessRequest, ProcessData, ProcessEvent};
+ use process_events_streaming::{ProcessRequest, ProcessResult, ProcessData, ProcessEvent};
  use std::{thread, time::Duration};
-  let callback = |status: &ProcessEvent, data: &ProcessData| -> Option<bool> {
-         match status {
-             ProcessEvent::Started => {
-                 println!(
-                     "Event {:?} | req-id {}  | Pids: {:?}",
-                     status,
-                     data.request.as_ref().unwrap().request_id,
-                     data.pids
-                 );
-             }
-             ProcessEvent::IOData => {
-                 println!(
-                     "Event {:?} | req-id {} | # {} : {}",
-                     status,
-                     data.request.as_ref().unwrap().request_id,
-                     data.line_number,
-                     data.line
-                 );
+      let callback = |status: &ProcessEvent, data: &ProcessData| -> ProcessResult {
+          match status {
+              ProcessEvent::Started => {
+                  println!(
+                      "Event {:?} | req-id {}  | Pids: {:?}",
+                      status,
+                      data.request.as_ref().unwrap().request_id,
+                      data.child_pids()
+                  );
+              }
+              ProcessEvent::IOData => {
+                  println!(
+                      "Event {:?} | req-id {} | # {} : {}",
+                      status,
+                      data.request.as_ref().unwrap().request_id,
+                      data.line_number,
+                      data.line
+                  );
+                  //now assume we want to exit the process with some data
+                  let mut result = ProcessResult::new();
+                  result.set_exit_flag_and_success(true, Ok(true));
+                  result.data_num = Some(8111981);
+                  result.data_vec_str = Some(vec![String::from("I found my hidden data!")]);
+                  return result;
 
-                 //demo how to kill/stop
-                 // //using kill api
-                 //_ = data.kill();
-                 // //or return false to exit the process, based on the line_number value
-                 // if data.line_number == 1 {
-                 //     return Some(false);
-                 // }
-                 // // or return false to exit the process, if a condition is true based on the output data
-                 // if data.line.contains("Sandy") {
-                 //     return Some(false);
-                 // }
-             }
-             other => {
-                 if !data.line.is_empty() {
-                     println!(
-                         "Event {:?} | req-id {} | additional detail(s): {}",
-                         other,
-                         data.request.as_ref().unwrap().request_id,
-                         data.line
-                     );
-                 } else {
-                     println!(
-                         "Event {:?} | req-id {}",
-                         other,
-                         data.request.as_ref().unwrap().request_id
-                     );
-                 }
-             }
-         }
-         Some(true)
-     };
+                  //demo how to kill/stop
+                  //_ = data.kill();
+              }
+              other => {
+                  if !data.line.is_empty() {
+                      println!(
+                          "Event {:?} | req-id {} | additional detail(s): {}",
+                          other,
+                          data.request.as_ref().unwrap().request_id,
+                          data.line
+                      );
+                  } else {
+                      println!(
+                          "Event {:?} | req-id {}",
+                          other,
+                          data.request.as_ref().unwrap().request_id
+                      );
+                  }
+              }
+          }
+          ProcessResult::new()
+      };
 
-    //Two processes pipe line use case (non blocking mode, so check and wait on the return of the start function's call)
-    ProcessRequest::start(ProcessRequest {
-         request_id: 161,
-         callback: Some(Arc::new(callback)),
-         use_shell: true,
-         cmd_line: vec![vec![String::from("dir")], vec![String::from("sort")]],
-         non_blocking_mode: true,
-     });
 
-     //check & wait for the non blocking mode use case
-     if result1.is_some() {
-         if result1.as_ref().unwrap().is_ok() {
-             println!(
-                 "Start - join waiting over in non blocking mode {:?}",
-                 result1
-                     .unwrap()
-                     .unwrap()
-                     .join()
-                     .expect("Couldn't join on the associated thread")
-             );
-         } else {
-             println!(
-                 "Start - Error in non blocking mode {:?}",
-                 result1.unwrap().err()
-             );
-         }
-     } else {
-         println!("Start - It was a blocking mode, so nothing to wait for!");
-     }
 
-    //Start calculator app in windows (blocking mode)
+    let request2 = ProcessRequest {
+        request_id: 151,
+        callback: Some(Arc::new(callback)),
+        use_shell: true,
+        cmd_line: vec![vec![
+            String::from("echo"),
+            String::from("stdout"),
+            String::from("&"),
+            String::from("echo"),
+            String::from("stderr"),
+            String::from(">&2"),
+        ]],
+        non_blocking_mode: true,
+    };
+
+    // non Blocking mode
+    let process_result = ProcessRequest::start(request2);
+    println!("Returned from Start! of non blocking");
+
+    let mut internal_data = ProcessResult::new();
+    //check & wait for the non blocking mode
+    if process_result.join_handle.is_some() {
+        if process_result.join_handle.as_ref().unwrap().is_ok() {
+            internal_data = process_result.join_handle.unwrap().unwrap().join().unwrap();
+            println!(
+                "Start - join waiting over in non blocking mode {:?}",
+                internal_data
+            );
+        } else {
+            internal_data.success = Err(process_result.join_handle.unwrap().err().unwrap());
+            println!(
+                "Start - Error in non blocking mode {:?}",
+                internal_data.success
+            );
+        }
+    } else {
+        internal_data = process_result;
+    }
+    println!("result dump : {:?}", internal_data);
+
     println!(
      "test_using_sh_output_streaming, start calc in windows {:?}",
      ProcessRequest::start(ProcessRequest {
@@ -113,6 +121,15 @@ Sample output of the process events from the tests
 
 ```
 running 2 tests
+Event Starting | req-id 151 | additional detail(s): Executing in thread-context -> id: ThreadId(2), name: Some("tests::test_using_sh_output_streaming_new_version")
+Event Started | req-id 151  | Pids: [14120]
+Event IOData | req-id 151 | # 1 : stdout 
+
+Event ExitRequested | req-id 151 | additional detail(s): stdout
+
+Event Exited | req-id 151
+Returned from Start! of non blocking
+result dump : ProcessResult { join_handle: None, should_exit: Some(true), success: Ok(true), data_vec_str: Some(["I found my hidden data!"]), data_bool: None, data_num: Some(8111981), data_decimal: None }
 
 Event Starting | req-id 105 | additional detail(s): Executing in thread-context -> id: ThreadId(3), name: Some("pes_th_rq_105")
 Event Started | req-id 105  | Pids: [10332, 864]
